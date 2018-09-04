@@ -1,0 +1,132 @@
+<%
+	SAMPLE_ATTRIBUTES = 5
+	factors = {
+		'Program' => 1,
+		'Task' => 2,
+		'Kmer' => 3,
+		'Platform' => 4
+	}
+	data = []
+	@hash_vars['metric_table.txt'].each do |row|
+		data << row.dup
+	end
+	n_cols = data.first.length
+	maxs = Array.new(n_cols, 0)
+	data.each_with_index do |sample, i|
+		next if i == 0
+		sample.each_with_index do |attribute, j|
+			float_att = attribute.to_f
+			if j + 1 > SAMPLE_ATTRIBUTES && float_att > maxs[j]
+				maxs[j] = float_att
+			end
+		end
+	end
+	data.each_with_index do |sample, i|
+		next if i == 0
+		sample.each_with_index do |attribute, j|
+			float_att = attribute.to_f
+			if j + 1 > SAMPLE_ATTRIBUTES
+				percentage = float_att *100/maxs[j]
+				if !percentage.nan?
+					sample[j] = percentage
+				else
+					sample[j] = 0
+				end
+			end
+		end
+	end
+	@hash_vars['metric_table_rel.txt'] = data
+%>
+<div style="overflow: hidden">
+	<div style="overflow: hidden">
+		<%=
+			heatmap(id: 'metric_table_rel.txt', header: true, row_names: true, text: true,
+				x_label: 'Proportion of max (percentage)', responsive: false,
+				sample_attributes: factors, config: {
+					'varLabelRotate' => 45,
+					'axisAlgorithm' => 'rPretty',
+					'colorSpectrumBreaks' => [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
+					'colorSpectrum' => ['#4575b4', '#74add1', '#abd9e9', '#e0f3f8', '#ffffbf', '#fee090', '#fdae61', '#f46d43', '#d73027', '#a50026'],
+					'colorSpectrumNumber' => 20
+				}
+				) do |table|
+				(SAMPLE_ATTRIBUTES-1).times do |n|
+					table[n+1] = nil
+				end
+				table.compact!
+			end
+		%>
+		<%=
+			embed_pdf('general_pca.pdf', 'width="600" height="600"')
+		%>
+	</div>
+	<div style="overflow: hidden">
+		<%['r', 'c', '1', '2'].each do |dim|%>
+		    <%=
+		    table(id: 'PCA_general_results_parsed', text: true, header: true,
+	            cell_align: ['left', 'right', 'right'],
+	            border: 2,
+	            attrib: {
+	                    'style' => 'display: inline-table',
+	                    'cellspacing' => 0,
+	                    'cellpadding' => 2
+	            }) do |data|
+	                    data.select!{|row| row.first == dim}
+				data.map{|row| row.shift} if !data.nil?
+	            end
+		    %>
+		<%end%>
+    </div>
+	<div style="overflow: hidden">
+	    <%=
+	    	col_indexes = %w[ComplOrtho DuplOrtho FragOrtho].map{|metric| @hash_vars['metric_table.txt'].first.index(metric)}
+		barplot(id: 'metric_table.txt', fields: [0].concat(col_indexes), header: true, row_names: true,
+		    	responsive: false, title: 'BUSCO metrics', x_label: 'Percentage')
+	    %>
+	    <%=
+	    	col_indexes = %w[MeanContigLen N50 N90].map{|metric| @hash_vars['metric_table.txt'].first.index(metric)}
+		    barplot(id: 'metric_table.txt', fields: [0].concat(col_indexes), header: true, row_names: true,
+		    	responsive: false, title: 'Contig length metrics', x_label: 'Nt')
+	    %>
+	    <%=
+	    	col_indexes = %w[input_seqs Contigs Contigs500].map{|metric| @hash_vars['metric_table.txt'].first.index(metric)}
+		    barplot(id: 'metric_table.txt', fields: [0].concat(col_indexes), header: true, row_names: true,
+		    	responsive: false, title: 'Contig number metrics', x_label: 'Contig count')
+	    %>
+	    <%=
+	    	col_indexes = %w[prot_annotated complete DiffProts DiffComplProts].map{|metric| @hash_vars['metric_table.txt'].first.index(metric)}
+		    barplot(id: 'metric_table.txt', fields: [0].concat(col_indexes), header: true, row_names: true,
+		    	responsive: false, title: 'Annotated protein metrics', x_label: 'Contig count')
+	    %>
+   	    <%=
+	    	col_indexes = %w[AllTransSize].map{|metric| @hash_vars['metric_table.txt'].first.index(metric)}
+		    barplot(id: 'metric_table.txt', fields: [0].concat(col_indexes), header: true, row_names: true,
+		    	responsive: false, title: 'full_transcriptome_length', x_label: 'Nt', config: {
+		    		'showLegend' => false
+		    		})
+	    %>
+   	    <%=
+	    	col_indexes = %w[MissAssembl].map{|metric| @hash_vars['metric_table.txt'].first.index(metric)}
+		    barplot(id: 'metric_table.txt', fields: [0].concat(col_indexes), header: true, row_names: true,
+		    	responsive: false, title: 'misassembled', x_label: 'Percentage (prot_annotated)', config: {
+		    		'showLegend' => false
+		    		})
+	    %>
+   	    <%=
+	    	col_indexes = %w[Ns].map{|metric| @hash_vars['metric_table.txt'].first.index(metric)}
+		    barplot(id: 'metric_table.txt', fields: [0].concat(col_indexes), header: true, row_names: true,
+		    	responsive: false, title: 'indeterminations', x_label: 'Count', config: {
+		    		'showLegend' => false
+		    		})
+	    %>
+   	    <%=
+	    	col_indexes = %w[MeanGapLen].map{|metric| @hash_vars['metric_table.txt'].first.index(metric)}
+		    barplot(id: 'metric_table.txt', fields: [0].concat(col_indexes), header: true, row_names: true,
+		    	responsive: false, title: 'indetermination_mean_length', x_label: 'Nt', config: {
+		    		'showLegend' => false
+		    		})
+	    %>
+
+    </div>
+
+</div>

@@ -1,0 +1,125 @@
+#= Validation Autoflow transcriptoma de novo Castanea sativa
+############################################
+
+#= Validation of 'de novo' transcriptome assembly for Illumina and 454 single-end reads.
+#= This workflow has been designed to be used in plants.
+  
+
+###############################################
+#############################################################################################################################
+#####  METRICS BLOCK  ####################################################################################
+################################################################################################################
+###############################################################################################################
+
+%calculating_BUSCO_metric_[JobRegExp:scaffolding|reduce|merge|MIRA|Euler|CAP3|reassembly_454|reassembly_all|reassembling_Illumina|reference|Assembly|remove_illumina_redundancy:-]){
+    resources: -n cal -c 4 -t '15:00:00' -m '4gb'
+    module load busco/3.0.2
+    ln -s (*)/all_sequences.fasta
+    fasta_standard_renamer.rb all_sequences.fasta
+    ln -s (*)/tracker
+    var_tracker=`cat tracker`       
+    ?
+    run_BUSCO.py -i all_sequences.fasta_new -l $BUSCO_db_path -o BUSCO_analysis -m tran -f -c [cpu]
+    if [ ! -s run_BUSCO_analysis/short_summary_BUSCO_analysis.txt ] || [[ `grep "Complete BUSCOs" run_BUSCO_analysis/short_summary_BUSCO_analysis.txt | cut -f 2` == 0 ]]; then
+        echo "ERROR: BUSCO has failed"
+        exit 1 # Fail
+    else
+        rm -rf run_BUSCO_analysis/hmmer_output run_BUSCO_analysis/translated_proteins
+        grep -r -o 'C:[0-9\.]*\%[S:[0-9\.]*\%,D:[0-9\.]*\%],F:[0-9\.]*\%' run_BUSCO_analysis/short_summary_BUSCO_analysis.txt | sed -r "s|C:([0-9\.]*)\%\[S:[0-9\.]*\%,D:([0-9\.]*)\%],F:([0-9\.]*)\%|$var_tracker\tComplOrtho\t\1\n$var_tracker\tDuplOrtho\t\2\n$var_tracker\tFragOrtho\t\3|g" >> ../metrics
+    fi
+}
+
+%FLN_metric_[JobRegExp:scaffolding|reduce|merge|MIRA|Euler|CAP3|reassembly_454|reassembly_all|reassembling_Illumina|Assembly|remove_illumina_redundancy:-]){
+    resources: -u 3 -s -n cal -c 48 -t '7-00:00:00' -m '30gb'
+    . ~soft_cvi_114/initializes/init_fln
+    ln -s (*)/tracker
+        if [ "$ill_type" == "paired" ]; then
+            files_illumina='Cleanup_ill)/output_files/paired_1_.fastq,Cleanup_ill)/output_files/paired_2_.fastq'
+        elif [ "$ill_type" == "single" ]; then
+            files_illumina="Cleanup_ill)/output_files/sequences_.fastq"
+        else
+            echo 'Read input files not set.'
+            exit 1
+        fi
+    files_454="Cleanup_454)/sequences_.fastq"
+    ?
+    full_lengther_next -s 10.243 -f (*)/all_sequences.fasta -a 's' -z  -g $FLN_DATABASE -c 5000 -q 'd' -w [lcpu] -M "$files_illumina;$files_454"
+    if [ ! -s fln_results/summary_stats.txt ] ; then
+        echo "ERROR: full_lengther_next has failed"
+        exit 1 # Fail
+    fi
+
+    #making metric file
+    echo -e "`cat tracker`\tMeanContigCov\t`tail +2 fln_results/coverage_per_transcript.txt | awk '{ if ($2 > 0){ sum += $2; n++} } END { if (n > 0) print sum / n; }'` " >> ../metrics
+    input_seqs=`grep -w "input_seqs" fln_results/summary_stats.txt | cut -f 1`
+    unmapped=`grep -w "unmapped" fln_results/summary_stats.txt | cut -f 1`
+    mapped_contigs=$(($input_seqs - $unmapped))
+    echo -e "`cat tracker`\tContigs\t$mapped_contigs" >> ../metrics
+    input_seqs500=`grep -w "PRE_FLN_sequences_>500" fln_results/summary_stats.txt | cut -f 1`
+    unmapped500=`awk '{if ($2 >= 500) sum +=1} END {print sum}' fln_results/unmapped.txt`
+    mapped_contigs500=$(($input_seqs500 - $unmapped500))
+    echo -e "`cat tracker`\tContigs500\t$mapped_contigs500" >> ../metrics
+
+    fln_absolute_metric=( 'input_seqs' 'PRE_FLN_mean_length' 'longest_unigene' 'PRE_FLN_full_transcriptome_length' 'PRE_FLN_n50' 'PRE_FLN_n90' 'PRE_FLN_indeterminations' 'PRE_FLN_indetermination_mean_length' 'prot_annotated' 'complete' 'coding' 'different_orthologues' 'different_completes' )
+    metric_names=( 'input_seqs' 'MeanContigLen' 'longest_unigene' 'AllTransSize' 'N50' 'N90' 'Ns' 'MeanGapLen' 'prot_annotated' 'complete' 'coding' 'DiffProts' 'DiffComplProts' )
+    position=0
+     for i in "${fln_absolute_metric[@]}"
+     do
+         command=`grep -w "$i" fln_results/summary_stats.txt | cut -f 1`
+         echo -e "`cat tracker`\t${metric_names[$position]}\t$command" >> ../metrics
+        position=$(($position + 1))
+    done
+
+    fln_stats_metric=( 'misassembled' 'chimeras' )
+    metric_names=( 'MissAssembl' 'chimeras' )
+    position=0
+    total=`grep  "prot_annotated" fln_results/summary_stats.txt | cut -f 1`
+    for i in "${fln_stats_metric[@]}"
+    do
+        command=`grep -w "$i" fln_results/summary_stats.txt | cut -f 1`
+        echo -e "`cat tracker`\t${metric_names[$position]}\t`echo "scale=4; $command*100/($total+$command)" | bc`" >> ../metrics
+        position=$(($position + 1))
+    done
+    rm -rf temp
+}
+
+%table_report){
+    module load R/3.4.3
+    echo " !JobRegExp:metric:-!/algo "
+    REFS=`echo $key_organisms | tr '_' ','`
+    ?
+    create_metric_table.rb ../metrics  "Name,Program,Task,Kmer,Technology"
+    sed 's/>//g' metric_table.txt -i
+    sed 's/PRE_FLN_//g' metric_table.txt -i
+    ## PCA
+    #####################################
+
+    SUPLEMENTARY_VARS="'`head -n 1 metric_table.txt | cut -f 2,3,4,5|tr "\t" "="|sed "s/=/', '/g"`'"
+    
+   #  Using general vars
+   #  ------------------------------------
+    echo "general vars"
+    echo "-------------"
+    PCA_variables="
+    'Contigs',
+    'Contigs500',
+    'MeanContigLen',
+    'N50',
+    'N90',
+    'Ns',
+    'MeanGapLen',
+    'ComplOrtho',
+    'FragOrtho',
+    'DuplOrtho',
+    'MissAssembl',
+    'chimeras',
+    'DiffProts',
+    'DiffComplProts',
+    'MeanContigCov',
+    'AllTransSize'
+    "
+    factor_analysis.R -I -d metric_table.txt -l "$SUPLEMENTARY_VARS" -c "$PCA_variables" -o general_pca -r $REFS > PCA_general_results
+    parse_pca.rb PCA_general_results > PCA_general_results_parsed
+    report_html -t $report_template -d metric_table.txt,PCA_general_results_parsed -o assembly_report
+    
+}  

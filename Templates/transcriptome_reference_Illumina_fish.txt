@@ -1,0 +1,75 @@
+
+#= References transcriptome de novo of Castanea sativa
+############################################
+
+#= References for 'de novo' transcriptome assembly for Illumina and 454 single-end reads.
+#= This workflow has been designed to be used with plants.
+#########################################
+#Variables
+############################################
+
+
+	
+######################################################################################################################################
+######### REFERENCES ################################################################################################################
+###################################################################################################################################
+
+%reference_danio){     
+	ln -s $reference/Danio_rerio_cds.fasta all_sequences.fasta
+	?
+	echo -e "D.rerio\tref_p\tref_t\tref_k\tref_t" > tracker
+}
+
+##############################################################################################################################
+##############################################################################################################################
+#############################################################################################################################
+#####  METRICS BLOCK  ####################################################################################
+################################################################################################################
+###############################################################################################################
+
+%FLN_metric_Danio){
+    resources: -s -u 3 -n cal -c 48 -t '7-00:00:00' -m '30gb'
+    . ~soft_cvi_114/initializes/init_fln
+    ln -s reference_danio)/tracker
+    ?
+    full_lengther_next -s 10.243 -f reference_danio)/all_sequences.fasta -a 's' -z  -g $FLN_DATABASE -c 500 -q 'd' -w [lcpu] -M '$reads/Danio_ref_paired_1.fastq.gz,$reads/Danio_ref_paired_2.fastq.gz'
+
+    if [ ! -s fln_results/summary_stats.txt ] ; then
+        echo "ERROR: full_lengther_next has failed"
+        exit 1 # Fail
+    fi
+
+    #making metric file
+    echo -e "`cat tracker`\tMeanContigCov\t`tail +2 fln_results/coverage_per_transcript.txt | awk '{ if ($2 > 0){ sum += $2; n++} } END { if (n > 0) print sum / n; }'` " >> ../metrics
+    input_seqs=`grep -w "input_seqs" fln_results/summary_stats.txt | cut -f 1`
+    unmapped=`grep -w "unmapped" fln_results/summary_stats.txt | cut -f 1`
+    mapped_contigs=$(($input_seqs - $unmapped))
+    echo -e "`cat tracker`\tContigs\t$mapped_contigs" >> ../metrics
+    input_seqs500=`grep -w "PRE_FLN_sequences_>500" fln_results/summary_stats.txt | cut -f 1`
+    unmapped500=`awk '{if ($2 >= 500) sum +=1} END {print sum}' fln_results/unmapped.txt`
+    mapped_contigs500=$(($input_seqs500 - $unmapped500))
+    echo -e "`cat tracker`\tContigs500\t$mapped_contigs500" >> ../metrics
+
+    fln_absolute_metric=( 'input_seqs' 'PRE_FLN_mean_length' 'longest_unigene' 'PRE_FLN_full_transcriptome_length' 'PRE_FLN_n50' 'PRE_FLN_n90' 'PRE_FLN_indeterminations' 'PRE_FLN_indetermination_mean_length' 'prot_annotated' 'complete' 'coding' 'different_orthologues' 'different_completes' )
+    metric_names=( 'input_seqs' 'MeanContigLen' 'longest_unigene' 'AllTransSize' 'N50' 'N90' 'Ns' 'MeanGapLen' 'prot_annotated' 'complete' 'coding' 'DiffProts' 'DiffComplProts' )
+    position=0
+     for i in "${fln_absolute_metric[@]}"
+     do
+         command=`grep -w "$i" fln_results/summary_stats.txt | cut -f 1`
+         echo -e "`cat tracker`\t${metric_names[$position]}\t$command" >> ../metrics
+        position=$(($position + 1))
+    done
+
+    fln_stats_metric=( 'misassembled' 'chimeras' )
+    metric_names=( 'MissAssembl' 'chimeras' )
+    position=0
+    total=`grep  "prot_annotated" fln_results/summary_stats.txt | cut -f 1`
+    for i in "${fln_stats_metric[@]}"
+    do
+        command=`grep -w "$i" fln_results/summary_stats.txt | cut -f 1`
+        echo -e "`cat tracker`\t${metric_names[$position]}\t`echo "scale=4; $command*100/($total+$command)" | bc`" >> ../metrics
+        position=$(($position + 1))
+    done
+    rm -rf temp
+}
+

@@ -1,0 +1,285 @@
+#= Autoflow transcriptoma de novo Solea senegalensis
+############################################
+
+#= De novo transcriptome assembly form Illumina and 454 single-end reads.
+#= This template includes different strategies: i)Illumina reads+454 reads assembly,iv)Illumina assembly+454 reads, v)Illumina assembly+454 assembly.
+#= This workflow has been designed to be used in fishes.
+  
+#########################################
+#Variables
+############################################
+
+
+
+#########################################################################
+### ILLUMINA ASSEMBLY AND CAP3 DATA PREPARATION FROM PREVIOUS TEMPLATES
+#########################################################################
+
+### Illumina assemblies, remove sequence rendundance
+################################################################
+
+
+# To SCAFFOLDING illumina level
+#-----------------------------------------------------
+SC_remove_illumina_redundancy_[JobRegExp:scaffolding:-]){
+	resources: -m '15gb' -c 16 -n cal
+	module load ruby
+ 	module load cdhit
+ 	#create a file to track names in order to do the metrics
+	echo -e "`cut -f1 (*)/tracker`\tcd-hit\tscaffolding\t`cut -f4 (*)/tracker`\tIll" > tracker
+	?
+	cd-hit-est -i (*)/all_sequences.fasta -o all_sequences -c 0.95 -s 0.7 -M 0
+	if [ ! -s all_sequences ] ; then
+		echo "ERROR: Remove redundancy with cdhit has failed"
+		exit 1 # Fail
+	else
+		fasta_standard_renamer.rb all_sequences
+		mv all_sequences_new all_sequences.fasta
+	fi
+
+}
+
+### Assemblies prep, convert fastas to fastq 
+################################################################
+
+Qual_454_prep){
+	module purge
+	module load seqtrimnext/last
+	ln -s CAP3_454_k29)/all_sequences.fasta pre_cleaning_seqs.fasta
+	fasta_editor.rb -i pre_cleaning_seqs.fasta -C 5 -c a -o all_sequences.fasta
+	gen_qual.rb CAP3_454_k29)/all_sequences.fasta all_sequences.qual
+	?
+	fasta2fastq.rb all_sequences.fasta  all_sequences.qual all_sequences
+	if [ ! -s all_sequences.fastq ]; then
+		echo "ERROR: 454 (ens) fasta2fastq qual preparation has failed"
+		exit 1 # Fail
+	fi  
+	module purge
+	module load autoflow	  
+}
+
+Qual_Ill_prep_[JobRegExp:reduce_illumina_kmer_redundance_|merge_illumina_|SC_remove_illumina_redundancy_:-]){
+	module purge
+	module load seqtrimnext/last
+	export PATH=/mnt/home/users/pab_001_uma/josecordoba/codigo/fasta_editor:$PATH
+	#create a file to track names in order to do the metrics
+	echo -e "`cut -f1 (*)/tracker`\tfasta2fastq\tprep_qual\t`cut -f4 (*)/tracker`\tIll" > tracker
+	ln -s (*)/all_sequences.fasta pre_cleaning_seqs.fasta
+	fasta_editor.rb -i pre_cleaning_seqs.fasta -C 5 -c a -o all_sequences.fasta
+	#discarding sequences larger than 29900 for MIRA assembling
+	mkdir Mira_samples
+	if [[ `cat all_sequences.fasta | awk '{print length}' | sort -nr | head -1` > 29900 ]]; then
+		echo "Fragments larger than 29900, has been founded: filtering"
+    	fasta_editor.rb -i all_sequences.fasta -L 29900 -c a -o filtered.fasta
+    	mv filtered.fasta Mira_samples/all_sequences.fasta
+    	mv larger_seqs_filtered.fasta Mira_samples/larger_seqs_all_sequences.fasta
+	fi
+	gen_qual.rb all_sequences.fasta all_sequences.qual
+	?
+	fasta2fastq.rb all_sequences.fasta  all_sequences.qual all_sequences 
+	if [ -s Mira_samples/all_sequences.fasta ]; then
+		gen_qual.rb Mira_samples/all_sequences.fasta Mira_samples/all_sequences.qual
+		fasta2fastq.rb Mira_samples/all_sequences.fasta  Mira_samples/all_sequences.qual Mira_samples/all_sequences
+	else
+		ln -s ../all_sequences.fasta Mira_samples/all_sequences.fasta
+		ln -s ../all_sequences.fastq Mira_samples/all_sequences.fastq
+	fi
+	if [ ! -s all_sequences.fastq ] || [ ! -s Mira_samples/all_sequences.fastq ]; then
+		echo "ERROR: Illumina (ens) fasta2fastq qual preparation has failed"
+		exit 1 # Fail
+	fi    
+	module purge
+	module load autoflow	   
+}
+
+#########################################################################################
+### ILLUMINA - 454 ASSEMBLIES
+#########################################################################################
+
+### 454 assembly against Illumina assembly
+################################################################
+
+# MINIMUS reassembly (one illumina ens to 454 ens) CAP3/SOAP-25 ; CAP3/SOAP-35 ; CAP3/Oases-25 ; CAP3/Oases-35 ; CAP3/SOAP(25-35) ; CAP3/Oases(25-35)  
+#---------------------------------------------------------------------------------------------------------------------------
+reassembly_454_Illumina_[JobRegExp:reduce_illumina_kmer_redundance_|merge_illumina_|SC_remove_illumina_redundancy_:-]){ 
+	resources: -t '7-00:00:00' -m '20gb'
+	module load amos/3.1.0
+	module load ruby
+	#create a file to track names in order to do the metrics
+	echo -e "aaMin2/`cut -f1 (*)/tracker`/454Cap3\tminimus\trs\t29/`cut -f4 (*)/tracker`\t454-Ill" > tracker
+	cat CAP3_454_k29)/reconciliation_454.fasta (*)/all_sequences.fasta > pool_sequences
+	fasta_standard_renamer.rb pool_sequences
+	toAmos -s pool_sequences_new -o assembly_minimus.afg
+	? 
+	minimus2 assembly_minimus
+	cat assembly_minimus.fasta assembly_minimus.singletons.seq > all_sequences.fasta
+
+	if [ ! -s assembly_minimus.fasta ] || [ ! -s all_sequences.fasta ]; then
+		echo "ERROR: 454 (ens)- illumina (ens) Minimus reconciliation has failed"
+		exit 1 # Fail
+	else
+		rm -rf assembly_minimus.*
+	fi        
+}
+
+# MINIMUS reassembly (all illumina ens to 454 ens) all CAP3/SOAP25/SOAP35/Oases25/Oases35
+#-------------------------------------------------------------------------------------------
+
+# To SCAFFOLDING illumina level
+link_all_rem_redundancy){
+	resources: -m '15gb' -c 16 -n cal
+	module load ruby
+ 	module load cdhit
+	cat CAP3_454_k29)/reconciliation_454.fasta !JobRegExp:SC_remove_illumina_redundancy:-!/all_sequences.fasta > all_sequences.fasta
+	?
+	cd-hit-est -i all_sequences.fasta -o assembly_minimus -c 0.95 -s 0.7 -M 0
+	fasta_standard_renamer.rb assembly_minimus
+	if [ ! -s assembly_minimus_new ] ; then
+		echo "ERROR: Remove redundancy with cdhit has failed"
+		exit 1 # Fail
+	fi
+}
+
+SC_reassembly_all){ 
+	resources: -t '7-00:00:00' -m '20gb'
+	module load amos/3.1.0
+	module load ruby
+	#create a file to track names in order to do the metrics
+	echo -e "aaMin2/scALL/454Cap3\tminimus\tSC_trs_all\t29/$kmers\t454_Ill" | sed 's/[][]//g' > tracker
+	toAmos -s link_all_rem_redundancy)/assembly_minimus_new -o assembly_minimus.afg
+	?
+	minimus2  assembly_minimus
+	cat assembly_minimus.fasta assembly_minimus.singletons.seq > all_sequences.fasta
+	if [ ! -s assembly_minimus.fasta ] || [ ! -s all_sequences.fasta ]; then
+		echo "ERROR: 454 (ens)- illumina (ens) Minimus reconciliation has failed"
+		exit 1 # Fail
+	else
+		rm -rf assembly_minimus.*
+	fi
+}
+
+
+# RAY reassembly 454, SOAP and Oases assemblies
+#----------------------------------------------------------------------------------
+
+Assembly_454_Illumina_45_[JobRegExp:Qual_Ill_prep_:-]){
+	resources: -s -n cal -c 32 -t '7-00:00:00' -m '15gb' -u 2
+	module load ray/2.3.1
+	echo -e "aaRayK25/`cut -f1 (*)/tracker`/454Cap3\tRay\trs\t45\t454-Ill" > tracker
+	?	
+	mpiexec -np [cpu] Ray -k 45 -s Qual_454_prep)/all_sequences.fastq -s (*)/all_sequences.fastq  # -route-messages -connection-type debruijn -routing-graph-degree 4  (Message routing for large number of cores)
+	if [ ! -s RayOutput/Contigs.fasta ] || [ ! -s RayOutput/Scaffolds.fasta ]; then
+		echo "ERROR: Ray Illumina ens - 454 ens assembly or scaffolding have failed"
+		exit 1 # Fail
+	fi
+ 	ln -s RayOutput/Scaffolds.fasta all_sequences.fasta
+}
+
+Assembly_454_Illumina_35_[JobRegExp:Qual_Ill_prep_:-]){
+	resources: -s -n cal -c 32 -t '7-00:00:00' -m '15gb' -u 2
+	module load ray/2.3.1
+	echo -e "aaRayK35/`cut -f1 (*)/tracker`/454Cap3\tRay\trs\t35\t454-Ill" > tracker
+	?
+	mpiexec -np [cpu] Ray -k 35 -s Qual_454_prep)/all_sequences.fastq -s (*)/all_sequences.fastq  # -route-messages -connection-type debruijn -routing-graph-degree 4  (Message routing for large number of cores)
+	if [ ! -s RayOutput/Contigs.fasta ] || [ ! -s RayOutput/Scaffolds.fasta ]; then
+		echo "ERROR: Ray Illumina ens - 454 ens assembly or scaffolding have failed"
+		exit 1 # Fail
+	fi
+	ln -s RayOutput/Scaffolds.fasta all_sequences.fasta
+}
+
+
+### 454 reads reassembly with Illumina assembly
+##################################################
+
+# MIRA Reassembly 454reads (one illumina ens to 454 reads), SOAP and Oases
+#----------------------------------------------------------------------
+reassembling_Illumina_454reads_[JobRegExp:Qual_Ill_prep_:-]){
+	resources: -s -n bigmem -c 32 -t '7-00:00:00' -m '600gb' -u 1
+	module load mira/4.0.2
+	module load ruby
+	ln -s (*)/Mira_samples/all_sequences.fasta orig.fasta
+	#create a file to track names in order to do the metrics
+	echo -e "arMIRA/`cut -f1 (*)/tracker`\tmira\trs_454read/Ill\t`cut -f4 (*)/tracker`\t454-Ill" > tracker
+	echo "
+	project = transcriptome_test
+	job = est,denovo,accurate
+	parameters = -GE:not=4 -NW:cmrnl=warn
+	# the 454 data
+	readgroup = Reads454
+	data = Cleanup_454)/sequences_.fastq
+	technology = 454
+	# the Illumina data
+	readgroup = ContigsIllumina  
+	data = (*)/Mira_samples/all_sequences.fastq
+	technology = sanger
+	" > mira_config_template
+	?
+	mira mira_config_template > mira_log
+  	if [ ! -s transcriptome_test_assembly/transcriptome_test_d_results/transcriptome_test_out.unpadded.fasta ] ; then
+		echo "ERROR: 454 (reads) - Illumina (ens) MIRA assembly has failed"
+		exit 1 # Fail
+	else 
+		if [ -s (*)/Mira_samples/larger_seqs_all_sequences.fasta ]; then	
+			cat (*)/Mira_samples/larger_seqs_all_sequences.fasta transcriptome_test_assembly/transcriptome_test_d_results/transcriptome_test_out.unpadded.fasta > merged_sequences.fasta
+			rm_codigo_degenerado.rb merged_sequences.fasta all_sequences.fasta
+		else
+			rm_codigo_degenerado.rb transcriptome_test_assembly/transcriptome_test_d_results/transcriptome_test_out.unpadded.fasta all_sequences.fasta
+		fi
+		rm -rf transcriptome_test_assembly mira_log merged_sequences.fasta
+	fi
+}
+
+# RAY reassembly 454reads (one illumina ens to 454 reads), SOAP and Oases 
+#-----------------------------------------------------------------------------------------
+Assembly_454reads_Illumina_45_[JobRegExp:Qual_Ill_prep_:-]){
+	resources: -s -n cal -c 32 -t '7-00:00:00' -m '15gb' -u 2
+	module load ray/2.3.1
+	echo -e "arRayK25/`cut -f1 (*)/tracker`\tRay\trs_454read/Ill\t45\t454-Ill" > tracker
+	?	
+	mpiexec -np [cpu] Ray -k 45 -s Cleanup_454)/sequences_.fastq -s (*)/all_sequences.fastq # -route-messages -connection-type debruijn -routing-graph-degree 4 (Message routing for large number of cores)
+	if [ ! -s RayOutput/Contigs.fasta ] || [ ! -s RayOutput/Scaffolds.fasta ]; then
+		echo "ERROR: Ray Illumina ens - 454 reads primary assembly or scaffolding have failed"
+		exit 1 # Fail
+	fi
+	ln -s RayOutput/Scaffolds.fasta all_sequences.fasta
+}
+
+
+Assembly_454reads_Illumina_35_[JobRegExp:Qual_Ill_prep:-]){
+	resources: -s -n cal -c 32 -t '7-00:00:00' -m '15gb' -u 2
+	module load ray/2.3.1
+	echo -e "arRayK35/`cut -f1 (*)/tracker`\tRay\trs_454read/Ill\t35\t454-Ill" > tracker
+	?
+	mpiexec -np [cpu] Ray -k 35 -s Cleanup_454)/sequences_.fastq -s (*)/all_sequences.fastq # -route-messages -connection-type debruijn -routing-graph-degree 4 (Message routing for large number of cores)
+	if [ ! -s RayOutput/Contigs.fasta ] || [ ! -s RayOutput/Scaffolds.fasta ]; then
+		echo "ERROR: Ray Illumina ens - 454 reads primary assembly or scaffolding have failed"
+		exit 1 # Fail
+	fi
+	ln -s RayOutput/Scaffolds.fasta all_sequences.fasta
+}
+
+
+### 454 reads with Illumina reads assembly
+##################################################
+
+Assembly_454_Illumina_reads_$kmers){
+	resources: -s -n cal -c 32 -t '7-00:00:00' -m '30gb' -u 2
+	module load ray/2.3.1
+	echo -e "rrRayK(*)\tRay\tas_reads\t(*)\t454-Ill" > tracker
+        if [ "$ill_type" == "paired" ]; then
+                input_files='-p Cleanup_ill)/output_files/paired_1_.fastq Cleanup_ill)/output_files/paired_2_.fastq'
+        elif [ "$ill_type" == "single" ]; then
+                input_files='-s Cleanup_ill)/output_files/sequences_.fastq'
+        else
+                echo 'Read input files not set.'
+                exit 1
+        fi
+	?	
+	mpiexec -np [cpu] Ray -k (*) -s Cleanup_454)/sequences_.fastq $input_files # -route-messages -connection-type debruijn -routing-graph-degree 4 (Message routing for large number of cores)
+	if [ ! -s RayOutput/Contigs.fasta ] || [ ! -s RayOutput/Scaffolds.fasta ]; then
+		echo "ERROR: Ray Illumina reads - 454 reads primary assembly or scaffolding have failed"
+		exit 1 # Fail
+	fi
+	ln -s RayOutput/Scaffolds.fasta all_sequences.fasta
+}

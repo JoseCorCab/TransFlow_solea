@@ -1,0 +1,198 @@
+
+#= Autoflow transcriptoma de novo of Castanea sativa Illumina
+############################################
+
+#= De novo transcriptome assembly for Illumina single-end reads.
+#= This template includes Illumina assembly only.
+#= This workflow has been designed to be used in plants.
+#= Author: Marina Espigares  
+#########################################
+#Variables
+###########################################
+####################################################
+#Pre-processing reads using SeqTrimNext
+###################################################
+
+%Cleanup_ill){
+	module load seqtrimnext/last
+	if [ "$ill_type" == "paired" ]; then
+		input_files="$read_illumina_pair_1,$read_illumina_pair_2"
+	elif [ "$ill_type" == "single" ]; then
+		input_files="$read_illumina_not_paired"
+	else
+		echo 'Read input files not set.'
+		exit 1	
+	fi
+	?
+	seqtrimnext -t transcriptomics_short_reads.txt -Q $input_files  -K -w [lcpu]  -s 10.243
+ 
+	if ( ([ ! -s output_files/paired_1_.fastq.gz ] || [ ! -s output_files/paired_2_.fastq.gz ]) && [ "$ill_type" == "paired" ] ) || ([ ! -s output_files/sequences_.fastq ] && [ "$ill_type" == "single" ] ); then
+		echo "ERROR: fastq files not exists or are empty"
+		exit 1 # Fail
+	fi
+}
+
+#############################################################
+#Assembling Illumina reads
+#############################################################
+
+####### Oases assembly ##################################################################
+
+%Oases_scaffolding_$kmers){ 
+	resources: -s -n bigmem -c 1 -t '7-00:00:00' -m '1500gb'
+	#--------------------------
+	module load velvet/1.2.08
+	echo -e "scOasesK(*)\toases\tscaffolding\t(*)\tIll" > tracker	#create a file to track names in order to do the metrics
+    	if [ "$ill_type" == "paired" ]; then
+            input_files='-shortPaired -separate Cleanup_ill)/output_files/paired_1_.fastq Cleanup_ill)/output_files/paired_2_.fastq'
+    	elif [ "$ill_type" == "single" ]; then
+            input_files='-short Cleanup_ill)/output_files/sequences_.fastq'
+    	else
+            echo 'Read input files not set.'
+            exit 1
+    	fi
+	?
+	velveth autoflow_assembly (*) -fastq $input_files > outFile_1
+	velvetg autoflow_assembly -read_trkg yes -cov_cutoff $NT_COVERAGE_IN_CONTIG -min_contig_lgth 100 > outFile_2
+	oases autoflow_assembly -cov_cutoff $NT_COVERAGE_IN_CONTIG -edgeFractionCutoff 0.1 > outFile_3
+
+	ln -s autoflow_assembly/transcripts.fa all_sequences.fasta
+    	if [ ! -s autoflow_assembly/contigs.fa ] || [ ! -s autoflow_assembly/transcripts.fa ]; then
+		echo "ERROR: Oases primary assembly or scaffolding have failed"
+	       exit 1 # Fail
+	else
+		rm autoflow_assembly/Graph2 autoflow_assembly/LastGraph autoflow_assembly/PreGraph autoflow_assembly/Roadmaps autoflow_assembly/Sequences
+	fi		
+}
+
+####join kmers####################################################################
+%join_Oases_SC){
+	module load ruby
+	echo -e "scOases_cat\tcat\tjoin\t$kmers\tIll" | sed 's/[][]//g' > tracker
+	?
+	cat !Oases_scaffolding_!/all_sequences.fasta > all.fasta
+	fasta_standard_renamer.rb all.fasta
+	ln -s all.fasta_new all_sequences.fasta
+	if [ ! -s all.fasta_new ]; then
+		echo "ERROR: Oases scaffolding join has failed"
+		exit 1 # Fail
+	fi	
+}
+
+####### SOAP assembly ##################################################################
+%SOAP_scaffolding_$kmers){
+	resources:  -n bigmem -c 16 -t '7-00:00:00' -m '300gb'
+	#--------------------------
+	module load soapdenovo_trans/1.03
+	echo -e "SOAPdenovo-Trans\t`SOAPdenovo-Trans-127mer | grep -oP '([0-9]*\.[0-9]*)'`" >> ../versions
+	echo -e "scSoapK(*)\tSOAPdenovo\tscaffolding\t(*)\tIll" > tracker
+	echo -e "
+	max_rd_len=151
+	[LIB]
+	reverse_seq=0
+	asm_flags=3
+	rank=1" > config.txt
+    	if [ "$ill_type" == "paired" ]; then
+		echo -e 'q1=Cleanup_ill)/output_files/paired_1_.fastq
+        		q2=Cleanup_ill)/output_files/paired_2_.fastq' >> config.txt
+    	elif [ "$ill_type" == "single" ]; then
+		echo 'q=Cleanup_ill)/output_files/sequences_.fastq' >> config.txt
+    	else
+        	echo 'Read input files not set.'
+        	exit 1
+    	fi
+	?
+	SOAPdenovo-Trans-127mer all -s config.txt -o assembly -K (*) -p [cpu] -d 0 -e $NT_COVERAGE_IN_CONTIG -t 4
+	ln -s assembly.scafSeq all_sequences.fasta
+	if [ ! -s assembly.contig ] || [ ! -s assembly.scafSeq ]; then
+		echo "ERROR: SOAP primary assembly or scaffolding have failed"
+		exit 1 # Fail
+	else
+		rm assembly.ctg2Read assembly.readInGap assembly.readOnContig
+	fi
+}
+
+
+###join kmers###################
+%join_SOAP_SC){
+	module load ruby
+	echo -e "scSoap_cat\tcat\tjoin\t$kmers\tIll" | sed  's/[][]//g'  > tracker
+	?
+	cat !SOAP_scaffolding_!/all_sequences.fasta > all.fasta
+	fasta_standard_renamer.rb all.fasta
+	ln -s all.fasta_new all_sequences.fasta
+	if [ ! -s all.fasta_new ]; then
+		echo "ERROR: SOAP scaffolding join has failed"
+		exit 1 # Fail
+	fi
+}
+
+###### RAY assembly ##########################
+
+%RAY_scaffolding_$kmers){
+	resources: -s -n bigmem -c 32 -t '7-00:00:00' -m '600gb' -u 1
+	module load ray/2.3.1
+	echo -e "ctRayK(*)\tRay\tprimary\t(*)\tIll" > tracker
+	    if [ "$ill_type" == "paired" ]; then
+            input_files='-p Cleanup_ill)/output_files/paired_1_.fastq Cleanup_ill)/output_files/paired_2_.fastq'
+    	elif [ "$ill_type" == "single" ]; then
+            input_files='-s Cleanup_ill)/output_files/sequences_.fastq'
+    	else
+            echo 'Read input files not set.'
+            exit 1
+    	fi
+	?	
+	mpiexec -np [cpu] Ray -k (*) $input_files -use-minimum-seed-coverage $NT_COVERAGE_IN_CONTIG # -route-messages -connection-type debruijn -routing-graph-degree 4 (Message routing for large number of cores)
+	if [ ! -s RayOutput/Contigs.fasta ] || [ ! -s RayOutput/Scaffolds.fasta ]; then
+		echo "ERROR: Ray primary assembling or scaffolding has failed"
+		exit 1 # Fail
+	fi
+	ln -s RayOutput/Contigs.fasta all_sequences.fasta
+}
+
+
+
+###join kmers###################
+%join_SC_RAY){
+	module load ruby
+	echo -e "ctRay_cat\tcat\tjoin\t$kmers\tIll" | sed 's/[][]//g' > tracker
+	?
+	cat !RAY_scaffolding_!/all_sequences.fasta > all.fasta
+	fasta_standard_renamer.rb all.fasta
+	ln -s all.fasta_new all_sequences.fasta
+	if [ ! -s all.fasta_new ]; then
+		echo "ERROR: Ray scaffolding join has failed"
+	        exit 1 # Fail
+	fi	
+}
+
+##remove redundancy########
+%reduce_illumina_kmer_redundance_[JobRegExp:join:-]){
+	resources: -m '50gb' -c 16 -n cal
+	module load cdhit
+	echo -e "`cut -f 1 (*)/tracker`_cd\tcd-hit\tjoin\t$kmers\tIll" | sed 's/[][]//g' > tracker
+	?
+	cd-hit-est -M 0 -i (*)/all_sequences.fasta -o all_sequences.fasta -c 0.95 -s 0.7
+	if [ ! -s all_sequences.fasta ]; then
+		echo "ERROR: CD-hit "`cat tracker | cut -f 1`" has failed"
+		exit 1 # Fail
+	fi	
+}
+
+######### kmers assembly#################
+
+%merge_illumina_[JobRegExp:kmer_redundance:-]){
+	resources: -t '7-00:00:00' -m '10gb' 
+	module load amos/3.1.0
+	echo -e "`cut -f 1 (*)/tracker`_rcMin2\tminimus\tmerge\t$kmers\tIll" | sed 's/[][]//g' > tracker 
+	toAmos -s (*)/all_sequences.fasta -o input_minimus.afg
+	?
+	minimus2 input_minimus 
+	cat input_minimus.fasta input_minimus.singletons.seq > all_sequences.fasta
+	if [ ! -s input_minimus.fasta ] || [ ! -s all_sequences.fasta ]; then
+		echo "ERROR: MINIMUS `cat tracker | cut -f 1` has failed"
+		exit 1 # Fail
+	else
+		rm -rf input_minimus.*
+	fi
+}

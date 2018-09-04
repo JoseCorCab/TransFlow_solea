@@ -1,0 +1,119 @@
+
+#= Autoflow transcriptoma de novo Solea senegalensis 454
+############################################
+
+#= De novo transcriptome assembly from 454 single-end reads.
+#= This template includes 454 assembly only.
+#= This workflow has been designed to be used in fishes.
+#= Author: José Córdoba
+#########################################
+#Variables
+############################################
+
+####################################################
+#Pre-processing reads using SeqTrimNext
+
+%Cleanup_454){
+	resources: -u 1 -s -t '7-00:00:00' -m '32gb' -c 16 
+	module purge
+	module load seqtrimnext/last
+	seqtrim_path=`gem which seqtrimnext`
+	template_path=`dirname $seqtrim_path`/../lib/seqtrimnext/templates/transcriptomics_454.txt
+	cp $template_path .
+	echo 'generate_initial_stats = false' >> transcriptomics_454.txt
+	echo 'min_insert_size_trimmed = 90' >> transcriptomics_454.txt
+	?
+	seqtrimnext -t ./transcriptomics_454.txt -Q $read_454 -K -R -w [lcpu] -s 10.243
+	cat output_files/*/sequences_*.fastq > sequences_.fastq
+   	if [ ! -s sequences_.fastq ] ; then
+		echo "ERROR: fastq file not exists or is empty"
+		exit 1 # Fail
+	fi
+	module purge
+	module load autoflow
+}
+
+#############################################################
+#Assembling 454 reads
+#############################################################
+
+##Input data prep########
+
+%Input_data_prep){ #cambiar# origen de las lecturas de 454
+	module purge
+	module load seqtrimnext/last
+	ln -s Cleanup_454)/sequences_.fastq
+	?
+	fastq2fasta.rb Cleanup_454)/sequences_.fastq sequences_prep
+  	if [ ! -s sequences_prep.fasta ] ; then
+		echo "ERROR: fasta file not exists or is empty"
+        	exit 1 # Fail
+	fi
+	module purge
+	module load autoflow
+}
+
+###### MIRA_454_ assembly ##########
+
+%MIRA_assembling_454){ #cambiar plantilla de MIRA	
+	resources: -t '7-00:00:00' -m '200gb'
+	module load mira/4.0.2
+	#create a file to track names in order to do the metrics
+	echo -e "ctMIRA\tmira\tprimary\tnot\t454" > tracker
+	echo "
+	project = transcriptome_test
+	job = est,denovo,accurate
+	parameters = -GE:not=4
+	readgroup = Unpaired454Reads
+	data = Cleanup_454)/sequences_.fastq
+	technology = 454
+	" > mira_config_template
+	?
+	mira mira_config_template > mira_log
+  	if [ ! -s transcriptome_test_assembly/transcriptome_test_d_results/transcriptome_test_out.unpadded.fasta ] ; then
+		echo "ERROR: MIRA assembly has failed"
+		exit 1 # Fail
+	else 
+		mv transcriptome_test_assembly/transcriptome_test_d_results/transcriptome_test_out.unpadded.fasta all_sequences.fasta
+		rm -rf transcriptome_test_assembly
+		rm mira_log
+	fi	
+	
+}
+
+###### EULER_454_ assembly (de Brujin assembling using 25 & 29 k-mers) #############
+
+%Euler_assembly_454){
+	resources: -t '7-00:00:00' 
+   	module load euler/120408
+	ln -s Input_data_prep)/sequences_prep.fasta
+	#create a file to track names in order to do the metrics
+	echo -e "ctEulK29\tEuler\tprimary\tauto\t454" > tracker
+	?
+	Assemble.pl sequences_prep.fasta 29
+	ln -s transformed/sequences_prep.fasta.contig all_sequences.fasta 
+  	if [ ! -s transformed/sequences_prep.fasta.contig ] ; then
+		echo "ERROR: Euler assembly has failed"
+		exit 1 # Fail
+	else 
+		rm -rf fixed
+	fi	
+}
+
+######CAP3_recontiliation (MIRA+EULER_29)#########
+
+%CAP3_454_k29){
+    resources: -t '7-00:00:00' -m '40gb'
+    module load cap3/101507
+    #create a file to track names in order to do the metrics
+    echo -e "ctMIRA_ctEulK29_rcCAP3\tcap3\trec\t29-auto\t454" | sed 's/[][]//g' > tracker
+    cat MIRA_assembling_454)/all_sequences.fasta Euler_assembly_454)/transformed/sequences_prep.fasta.contig > reassembly_454.fasta
+    ?
+    cap3 reassembly_454.fasta -p 95 -o 40
+    cat reassembly_454.fasta.cap.contigs reassembly_454.fasta.cap.singlets > reconciliation_454.fasta
+	if [ ! -s reassembly_454.fasta.cap.contigs ] || [ ! -s reconciliation_454.fasta ]; then
+		echo "ERROR: CAP3 reconciliation has failed"
+		exit 1 # Fail
+	fi
+    ln -s reconciliation_454.fasta all_sequences.fasta
+}
