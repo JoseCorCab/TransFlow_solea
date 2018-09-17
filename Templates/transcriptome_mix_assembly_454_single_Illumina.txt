@@ -36,31 +36,25 @@ SC_remove_illumina_redundancy_[JobRegExp:scaffolding:-]){
 		fasta_standard_renamer.rb all_sequences
 		mv all_sequences_new all_sequences.fasta
 	fi
-
 }
 
 ### Assemblies prep, convert fastas to fastq 
 ################################################################
 
 Qual_454_prep){
-	module purge
-	module load seqtrimnext/last
+	module load bbmap
 	ln -s CAP3_454_k29)/all_sequences.fasta pre_cleaning_seqs.fasta
 	fasta_editor.rb -i pre_cleaning_seqs.fasta -C 5 -c a -o all_sequences.fasta
-	gen_qual.rb CAP3_454_k29)/all_sequences.fasta all_sequences.qual
 	?
-	fasta2fastq.rb all_sequences.fasta  all_sequences.qual all_sequences
+	reformat.sh in=all_sequences.fasta out=all_sequences.fastq qfake=50
 	if [ ! -s all_sequences.fastq ]; then
 		echo "ERROR: 454 (ens) fasta2fastq qual preparation has failed"
 		exit 1 # Fail
 	fi  
-	module purge
-	module load autoflow	  
 }
 
 Qual_Ill_prep_[JobRegExp:reduce_illumina_kmer_redundance_|merge_illumina_|SC_remove_illumina_redundancy_:-]){
-	module purge
-	module load seqtrimnext/last
+	module load bbmap
 	export PATH=/mnt/home/users/pab_001_uma/josecordoba/codigo/fasta_editor:$PATH
 	#create a file to track names in order to do the metrics
 	echo -e "`cut -f1 (*)/tracker`\tfasta2fastq\tprep_qual\t`cut -f4 (*)/tracker`\tIll" > tracker
@@ -74,12 +68,10 @@ Qual_Ill_prep_[JobRegExp:reduce_illumina_kmer_redundance_|merge_illumina_|SC_rem
     	mv filtered.fasta Mira_samples/all_sequences.fasta
     	mv larger_seqs_filtered.fasta Mira_samples/larger_seqs_all_sequences.fasta
 	fi
-	gen_qual.rb all_sequences.fasta all_sequences.qual
 	?
-	fasta2fastq.rb all_sequences.fasta  all_sequences.qual all_sequences 
+	reformat.sh in=all_sequences.fasta out=all_sequences.fastq qfake=50
 	if [ -s Mira_samples/all_sequences.fasta ]; then
-		gen_qual.rb Mira_samples/all_sequences.fasta Mira_samples/all_sequences.qual
-		fasta2fastq.rb Mira_samples/all_sequences.fasta  Mira_samples/all_sequences.qual Mira_samples/all_sequences
+		reformat.sh in=Mira_samples/all_sequences.fasta out=Mira_samples/all_sequences.fastq qfake=50
 	else
 		ln -s ../all_sequences.fasta Mira_samples/all_sequences.fasta
 		ln -s ../all_sequences.fastq Mira_samples/all_sequences.fastq
@@ -87,9 +79,7 @@ Qual_Ill_prep_[JobRegExp:reduce_illumina_kmer_redundance_|merge_illumina_|SC_rem
 	if [ ! -s all_sequences.fastq ] || [ ! -s Mira_samples/all_sequences.fastq ]; then
 		echo "ERROR: Illumina (ens) fasta2fastq qual preparation has failed"
 		exit 1 # Fail
-	fi    
-	module purge
-	module load autoflow	   
+	fi   	   
 }
 
 #########################################################################################
@@ -264,7 +254,7 @@ Assembly_454reads_Illumina_35_[JobRegExp:Qual_Ill_prep:-]){
 ##################################################
 
 Assembly_454_Illumina_reads_$kmers){
-	resources: -s -n cal -c 32 -t '7-00:00:00' -m '30gb' -u 2
+	resources: -s -n cal -c 48 -t '7-00:00:00' -m '60gb' -u 3
 	module load ray/2.3.1
 	echo -e "rrRayK(*)\tRay\tas_reads\t(*)\t454-Ill" > tracker
         if [ "$ill_type" == "paired" ]; then
