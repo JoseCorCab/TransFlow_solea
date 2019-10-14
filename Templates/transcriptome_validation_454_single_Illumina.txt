@@ -11,8 +11,8 @@
 ################################################################################################################
 ###############################################################################################################
 
-%calculating_BUSCO_metric_[JobRegExp:scaffolding|reduce|merge|MIRA|Euler|CAP3|reassembly_454|reassembly_all|reassembling_Illumina|reference|Assembly|remove_illumina_redundancy:-]){
-    resources: -n cal -c 4 -t '15:00:00' -m '4gb'
+calculating_BUSCO_metric_[JobRegExp:scaffolding|reduce|merge|MIRA|Euler|CAP3|reassembly_454|reassembly_all|reassembling_Illumina|reference|Assembly|remove_illumina_redundancy:-]){
+    resources: -u 3 -s -n cal -c 48 -t '15:00:00' -m '4gb'
     module load busco/3.0.2
     ln -s (*)/all_sequences.fasta
     fasta_standard_renamer.rb all_sequences.fasta
@@ -29,7 +29,7 @@
     fi
 }
 
-%FLN_metric_[JobRegExp:scaffolding|reduce|merge|MIRA|Euler|CAP3|reassembly_454|reassembly_all|reassembling_Illumina|Assembly|remove_illumina_redundancy:-]){
+FLN_metric_[JobRegExp:scaffolding|reduce|merge|MIRA|Euler|CAP3|reassembly_454|reassembly_all|reassembling_Illumina|Assembly|remove_illumina_redundancy:-]){
     resources: -u 3 -s -n cal -c 48 -t '7-00:00:00' -m '30gb'
     . ~soft_cvi_114/initializes/init_fln
     ln -s (*)/tracker
@@ -83,7 +83,7 @@
     rm -rf temp
 }
 
-%table_report){
+table_report){
     module load R/3.4.3
     echo " !JobRegExp:metric:-!/algo "
     REFS=`echo $key_organisms | tr '_' ','`

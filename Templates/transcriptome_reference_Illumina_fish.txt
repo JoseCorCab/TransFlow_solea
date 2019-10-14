@@ -14,7 +14,7 @@
 ######### REFERENCES ################################################################################################################
 ###################################################################################################################################
 
-%reference_danio){     
+%reference_Danio){     
 	ln -s $reference/Danio_rerio_cds.fasta all_sequences.fasta
 	?
 	echo -e "D.rerio\tref_p\tref_t\tref_k\tref_t" > tracker
@@ -27,12 +27,12 @@
 ################################################################################################################
 ###############################################################################################################
 
-%FLN_metric_Danio){
+FLN_metric_Danio){
     resources: -s -u 3 -n cal -c 48 -t '7-00:00:00' -m '30gb'
     . ~soft_cvi_114/initializes/init_fln
-    ln -s reference_danio)/tracker
+    ln -s reference_Danio)/tracker
     ?
-    full_lengther_next -s 10.243 -f reference_danio)/all_sequences.fasta -a 's' -z  -g $FLN_DATABASE -c 500 -q 'd' -w [lcpu] -M '$reads/Danio_ref_paired_1.fastq.gz,$reads/Danio_ref_paired_2.fastq.gz'
+    full_lengther_next -s 10.243 -f reference_Danio)/all_sequences.fasta -a 's' -z  -g $FLN_DATABASE -c 500 -q 'd' -w [lcpu] -M '$reads/Danio_ref_paired_1.fastq.gz,$reads/Danio_ref_paired_2.fastq.gz'
 
     if [ ! -s fln_results/summary_stats.txt ] ; then
         echo "ERROR: full_lengther_next has failed"

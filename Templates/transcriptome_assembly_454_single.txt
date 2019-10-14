@@ -39,7 +39,7 @@
 
 ##Input data prep########
 
-%Input_data_prep){ #cambiar# origen de las lecturas de 454
+Input_data_prep){ #cambiar# origen de las lecturas de 454
 	module purge
 	module load seqtrimnext/last
 	ln -s Cleanup_454)/sequences_.fastq
@@ -55,7 +55,7 @@
 
 ###### MIRA_454_ assembly ##########
 
-%MIRA_assembling_454){ #cambiar plantilla de MIRA	
+MIRA_assembling_454){ #cambiar plantilla de MIRA	
 	resources: -t '7-00:00:00' -m '200gb'
 	module load mira/4.0.2
 	#create a file to track names in order to do the metrics
@@ -83,7 +83,7 @@
 
 ###### EULER_454_ assembly (de Brujin assembling using 25 & 29 k-mers) #############
 
-%Euler_assembly_454){
+Euler_assembly_454){
 	resources: -t '7-00:00:00' 
    	module load euler/120408
 	ln -s Input_data_prep)/sequences_prep.fasta
@@ -102,7 +102,7 @@
 
 ######CAP3_recontiliation (MIRA+EULER_29)#########
 
-%CAP3_454_k29){
+CAP3_454_k29){
     resources: -t '7-00:00:00' -m '40gb'
     module load cap3/101507
     #create a file to track names in order to do the metrics

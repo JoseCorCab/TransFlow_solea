@@ -21,7 +21,7 @@
 
 # To SCAFFOLDING illumina level
 #-----------------------------------------------------
-SC_remove_illumina_redundancy_[JobRegExp:scaffolding:-]){
+%SC_remove_illumina_redundancy_[JobRegExp:scaffolding:-]){
 	resources: -m '15gb' -c 16 -n cal
 	module load ruby
  	module load cdhit
@@ -41,7 +41,7 @@ SC_remove_illumina_redundancy_[JobRegExp:scaffolding:-]){
 ### Assemblies prep, convert fastas to fastq 
 ################################################################
 
-Qual_454_prep){
+%Qual_454_prep){
 	module load bbmap
 	ln -s CAP3_454_k29)/all_sequences.fasta pre_cleaning_seqs.fasta
 	fasta_editor.rb -i pre_cleaning_seqs.fasta -C 5 -c a -o all_sequences.fasta
@@ -53,7 +53,7 @@ Qual_454_prep){
 	fi  
 }
 
-Qual_Ill_prep_[JobRegExp:reduce_illumina_kmer_redundance_|merge_illumina_|SC_remove_illumina_redundancy_:-]){
+%Qual_Ill_prep_[JobRegExp:reduce_illumina_kmer_redundance_|merge_illumina_|SC_remove_illumina_redundancy_:-]){
 	module load bbmap
 	export PATH=/mnt/home/users/pab_001_uma/josecordoba/codigo/fasta_editor:$PATH
 	#create a file to track names in order to do the metrics
@@ -91,7 +91,7 @@ Qual_Ill_prep_[JobRegExp:reduce_illumina_kmer_redundance_|merge_illumina_|SC_rem
 
 # MINIMUS reassembly (one illumina ens to 454 ens) CAP3/SOAP-25 ; CAP3/SOAP-35 ; CAP3/Oases-25 ; CAP3/Oases-35 ; CAP3/SOAP(25-35) ; CAP3/Oases(25-35)  
 #---------------------------------------------------------------------------------------------------------------------------
-reassembly_454_Illumina_[JobRegExp:reduce_illumina_kmer_redundance_|merge_illumina_|SC_remove_illumina_redundancy_:-]){ 
+%reassembly_454_Illumina_[JobRegExp:reduce_illumina_kmer_redundance_|merge_illumina_|SC_remove_illumina_redundancy_:-]){ 
 	resources: -t '7-00:00:00' -m '20gb'
 	module load amos/3.1.0
 	module load ruby
@@ -116,7 +116,7 @@ reassembly_454_Illumina_[JobRegExp:reduce_illumina_kmer_redundance_|merge_illumi
 #-------------------------------------------------------------------------------------------
 
 # To SCAFFOLDING illumina level
-link_all_rem_redundancy){
+%link_all_rem_redundancy){
 	resources: -m '15gb' -c 16 -n cal
 	module load ruby
  	module load cdhit
@@ -130,7 +130,7 @@ link_all_rem_redundancy){
 	fi
 }
 
-SC_reassembly_all){ 
+%SC_reassembly_all){ 
 	resources: -t '7-00:00:00' -m '20gb'
 	module load amos/3.1.0
 	module load ruby
@@ -152,7 +152,7 @@ SC_reassembly_all){
 # RAY reassembly 454, SOAP and Oases assemblies
 #----------------------------------------------------------------------------------
 
-Assembly_454_Illumina_45_[JobRegExp:Qual_Ill_prep_:-]){
+%Assembly_454_Illumina_45_[JobRegExp:Qual_Ill_prep_:-]){
 	resources: -s -n cal -c 32 -t '7-00:00:00' -m '15gb' -u 2
 	module load ray/2.3.1
 	echo -e "aaRayK25/`cut -f1 (*)/tracker`/454Cap3\tRay\trs\t45\t454-Ill" > tracker
@@ -165,7 +165,7 @@ Assembly_454_Illumina_45_[JobRegExp:Qual_Ill_prep_:-]){
  	ln -s RayOutput/Scaffolds.fasta all_sequences.fasta
 }
 
-Assembly_454_Illumina_35_[JobRegExp:Qual_Ill_prep_:-]){
+%Assembly_454_Illumina_35_[JobRegExp:Qual_Ill_prep_:-]){
 	resources: -s -n cal -c 32 -t '7-00:00:00' -m '15gb' -u 2
 	module load ray/2.3.1
 	echo -e "aaRayK35/`cut -f1 (*)/tracker`/454Cap3\tRay\trs\t35\t454-Ill" > tracker
@@ -184,7 +184,7 @@ Assembly_454_Illumina_35_[JobRegExp:Qual_Ill_prep_:-]){
 
 # MIRA Reassembly 454reads (one illumina ens to 454 reads), SOAP and Oases
 #----------------------------------------------------------------------
-reassembling_Illumina_454reads_[JobRegExp:Qual_Ill_prep_:-]){
+%reassembling_Illumina_454reads_[JobRegExp:Qual_Ill_prep_:-]){
 	resources: -s -n bigmem -c 32 -t '7-00:00:00' -m '600gb' -u 1
 	module load mira/4.0.2
 	module load ruby
@@ -222,7 +222,7 @@ reassembling_Illumina_454reads_[JobRegExp:Qual_Ill_prep_:-]){
 
 # RAY reassembly 454reads (one illumina ens to 454 reads), SOAP and Oases 
 #-----------------------------------------------------------------------------------------
-Assembly_454reads_Illumina_45_[JobRegExp:Qual_Ill_prep_:-]){
+%Assembly_454reads_Illumina_45_[JobRegExp:Qual_Ill_prep_:-]){
 	resources: -s -n cal -c 32 -t '7-00:00:00' -m '15gb' -u 2
 	module load ray/2.3.1
 	echo -e "arRayK25/`cut -f1 (*)/tracker`\tRay\trs_454read/Ill\t45\t454-Ill" > tracker
@@ -236,7 +236,7 @@ Assembly_454reads_Illumina_45_[JobRegExp:Qual_Ill_prep_:-]){
 }
 
 
-Assembly_454reads_Illumina_35_[JobRegExp:Qual_Ill_prep:-]){
+%Assembly_454reads_Illumina_35_[JobRegExp:Qual_Ill_prep:-]){
 	resources: -s -n cal -c 32 -t '7-00:00:00' -m '15gb' -u 2
 	module load ray/2.3.1
 	echo -e "arRayK35/`cut -f1 (*)/tracker`\tRay\trs_454read/Ill\t35\t454-Ill" > tracker
@@ -253,7 +253,7 @@ Assembly_454reads_Illumina_35_[JobRegExp:Qual_Ill_prep:-]){
 ### 454 reads with Illumina reads assembly
 ##################################################
 
-Assembly_454_Illumina_reads_$kmers){
+%Assembly_454_Illumina_reads_$kmers){
 	resources: -s -n cal -c 48 -t '7-00:00:00' -m '60gb' -u 3
 	module load ray/2.3.1
 	echo -e "rrRayK(*)\tRay\tas_reads\t(*)\t454-Ill" > tracker
